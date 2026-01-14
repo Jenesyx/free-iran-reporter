@@ -21,6 +21,10 @@ ALTER TABLE instagram_reports
 ALTER TABLE instagram_reports
   ADD COLUMN IF NOT EXISTS reason text;
 
+-- Remove NOT NULL constraint from old handle column (if it exists)
+-- This allows new inserts to use username instead of handle
+ALTER TABLE instagram_reports ALTER COLUMN handle DROP NOT NULL;
+
 -- ============================================================================
 -- 2. BACKFILL EXISTING DATA
 -- ============================================================================
