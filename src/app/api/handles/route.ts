@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { parseInstagramHandle, getValidationError } from '@/lib/instagram';
+import { validateInput } from '@/lib/validation';
 import type { InstagramReport, ApiResponse, SubmitResponse } from '@/lib/types';
 
 // GET - Fetch all handles (up to 1000)
@@ -36,23 +36,17 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
         const body = await request.json();
         const { input } = body;
 
-        // Validate input
-        const validationError = getValidationError(input);
-        if (validationError) {
+        // Comprehensive validation (includes banned words check)
+        const validationResult = validateInput(input);
+
+        if (!validationResult.isValid || !validationResult.handle) {
             return NextResponse.json(
-                { success: false, error: validationError },
+                { success: false, error: validationResult.error || 'Invalid Instagram handle' },
                 { status: 400 }
             );
         }
 
-        // Parse and normalize the handle
-        const handle = parseInstagramHandle(input);
-        if (!handle) {
-            return NextResponse.json(
-                { success: false, error: 'Invalid Instagram handle' },
-                { status: 400 }
-            );
-        }
+        const handle = validationResult.handle;
 
         // Insert into database (unique constraint will handle duplicates)
         const { error } = await supabase
@@ -63,7 +57,7 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
             // Check for unique constraint violation
             if (error.code === '23505') {
                 return NextResponse.json(
-                    { success: false, error: 'This handle has already been reported' },
+                    { success: false, error: 'Already added.' },
                     { status: 409 }
                 );
             }

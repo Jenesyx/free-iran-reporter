@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, FormEvent } from 'react';
-import { getValidationError, parseInstagramHandle } from '@/lib/instagram';
+import { getValidationError, parseAndValidateHandle } from '@/lib/instagram';
 
 interface InputSectionProps {
     onSubmitMultiple: (handles: string[]) => Promise<{ added: number; skipped: number; errors: string[] }>;
@@ -32,23 +32,25 @@ export default function InputSection({ onSubmitMultiple, existingHandles }: Inpu
 
         // Parse and validate all handles
         const validHandles: string[] = [];
-        const invalidParts: string[] = [];
+        const errors: { part: string; error: string }[] = [];
         const duplicates: string[] = [];
 
         for (const part of parts) {
+            // Get validation error (includes banned word checks)
             const validationError = getValidationError(part);
             if (validationError) {
-                invalidParts.push(part);
+                errors.push({ part, error: validationError });
                 continue;
             }
 
-            const parsed = parseInstagramHandle(part);
+            // Parse and normalize the handle
+            const parsed = parseAndValidateHandle(part);
             if (!parsed) {
-                invalidParts.push(part);
+                errors.push({ part, error: 'Invalid Instagram username' });
                 continue;
             }
 
-            // Check for duplicates in existing handles
+            // Check for duplicates in existing handles (client-side)
             if (existingHandles.includes(parsed)) {
                 duplicates.push(parsed);
                 continue;
@@ -60,12 +62,13 @@ export default function InputSection({ onSubmitMultiple, existingHandles }: Inpu
             }
         }
 
-        // If no valid handles, show error
+        // If no valid handles, show appropriate error
         if (validHandles.length === 0) {
-            if (duplicates.length > 0 && invalidParts.length === 0) {
-                setError(`All handles have already been reported`);
-            } else if (invalidParts.length > 0) {
-                setError(`Invalid username(s): ${invalidParts.join(', ')}`);
+            if (errors.length > 0) {
+                // Show the first validation error (could be "not allowed" or "English only")
+                setError(errors[0].error);
+            } else if (duplicates.length > 0) {
+                setError('Already added.');
             } else {
                 setError('No valid handles to submit');
             }

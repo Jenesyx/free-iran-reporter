@@ -2,6 +2,8 @@
  * Instagram handle parsing and validation utilities
  */
 
+import { validateInput, normalizeInput } from './validation';
+
 // Valid Instagram username: 1-30 characters, letters, numbers, periods, underscores
 const INSTAGRAM_USERNAME_REGEX = /^[a-zA-Z0-9._]{1,30}$/;
 
@@ -75,19 +77,28 @@ export function formatHandle(handle: string): string {
 }
 
 /**
- * Get validation error message for user feedback
+ * Get validation error message for user feedback.
+ * Uses comprehensive validation including banned word checking.
+ * 
  * @param input - The user input
  * @returns Error message or null if valid
  */
 export function getValidationError(input: string): string | null {
-    if (!input || !input.trim()) {
-        return 'Please enter an Instagram username or URL';
-    }
-
-    const parsed = parseInstagramHandle(input);
-    if (!parsed) {
-        return 'Invalid Instagram username. Use letters, numbers, periods, or underscores (1-30 characters)';
-    }
-
-    return null;
+    const result = validateInput(input);
+    return result.error;
 }
+
+/**
+ * Parse and validate input, returning the normalized handle or null.
+ * This is the main entry point for handle validation.
+ * 
+ * @param input - The user input
+ * @returns Normalized handle or null if invalid
+ */
+export function parseAndValidateHandle(input: string): string | null {
+    const result = validateInput(input);
+    return result.isValid ? result.handle : null;
+}
+
+// Re-export for convenience
+export { normalizeInput, validateInput } from './validation';
