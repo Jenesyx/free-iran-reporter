@@ -16,6 +16,9 @@ export const metadata: Metadata = {
   title: "Iran Freedom Reporter - Document Propaganda Accounts",
   description: "A transparency tool to document and identify Instagram accounts spreading propaganda or supporting violence during internet shutdowns in Iran.",
   keywords: ["Iran", "Instagram", "propaganda", "transparency", "accountability"],
+  icons: {
+    icon: "/flag.svg",
+  },
   openGraph: {
     title: "Iran Freedom Reporter",
     description: "Document Instagram accounts spreading propaganda during Iran internet shutdowns.",
