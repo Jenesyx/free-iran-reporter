@@ -2,20 +2,24 @@
 
 import { useState } from 'react';
 import HandlePill from './HandlePill';
-import { formatHandle } from '@/lib/instagram';
+import SortDropdown from './SortDropdown';
+import type { HandleData, SortOption } from '@/lib/types';
 
 interface HandleListProps {
-    handles: string[];
+    handles: HandleData[];
     onCopySuccess: () => void;
+    sortOption: SortOption;
+    onSortChange: (sort: SortOption) => void;
 }
 
-export default function HandleList({ handles, onCopySuccess }: HandleListProps) {
+export default function HandleList({ handles, onCopySuccess, sortOption, onSortChange }: HandleListProps) {
     const [isCopying, setIsCopying] = useState(false);
 
     const handleCopyAll = async () => {
         if (handles.length === 0) return;
 
-        const text = handles.map(h => formatHandle(h)).join('\n');
+        // Copy usernames WITHOUT @ prefix, newline-separated
+        const text = handles.map(h => h.username).join('\n');
 
         try {
             await navigator.clipboard.writeText(text);
@@ -37,11 +41,14 @@ export default function HandleList({ handles, onCopySuccess }: HandleListProps) 
 
     return (
         <section className="border border-[#2a2a2a] rounded-xl bg-[#1a1a1a]/50 p-4 sm:p-6">
-            {/* Header with counter and copy button */}
-            <div className="flex justify-between items-center mb-4">
-                <span className="text-sm text-gray-400 font-medium">
-                    Total: {handles.length.toLocaleString()}
-                </span>
+            {/* Header with counter, sort dropdown, and copy button */}
+            <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
+                <div className="flex items-center gap-3">
+                    <span className="text-sm text-gray-400 font-medium">
+                        Total: {handles.length.toLocaleString()}
+                    </span>
+                    <SortDropdown value={sortOption} onChange={onSortChange} />
+                </div>
                 <button
                     onClick={handleCopyAll}
                     disabled={isCopying}
@@ -54,7 +61,11 @@ export default function HandleList({ handles, onCopySuccess }: HandleListProps) 
             {/* Pills container */}
             <div className="flex flex-wrap gap-2">
                 {handles.map((handle) => (
-                    <HandlePill key={handle} handle={handle} />
+                    <HandlePill
+                        key={handle.username}
+                        username={handle.username}
+                        profileUrl={handle.profile_url}
+                    />
                 ))}
             </div>
         </section>

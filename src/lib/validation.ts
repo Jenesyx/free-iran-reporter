@@ -1,8 +1,8 @@
 /**
- * Input Validation & Abuse Prevention Utilities
+ * Input Validation & Shadow-Ban Detection Utilities
  * 
  * This module provides validation functions to sanitize and filter
- * Instagram handle submissions, blocking profanity and unwanted keywords.
+ * Instagram handle submissions, with shadow-ban logic for suspicious content.
  */
 
 // ============================================================================
@@ -11,7 +11,7 @@
 
 /**
  * Banned substrings - if the handle contains any of these (after collapsing
- * repeated characters), it will be rejected.
+ * repeated characters), it will be shadow-banned.
  * 
  * NOTE: Do NOT expose this list in any client-facing error messages.
  */
@@ -20,8 +20,6 @@ const BANNED_SUBSTRINGS: string[] = [
     'kooni',
     'jende',
     'koskesh',
-    'pahlavi',
-    'rezapahlavi',
 ];
 
 // ============================================================================
@@ -34,7 +32,7 @@ const BANNED_SUBSTRINGS: string[] = [
  * 
  * @example
  * collapseRepeatedChars("koooooniii") // returns "koni"
- * collapseRepeatedChars("pahlaviiiijendaaas") // returns "pahlavijendas"
+ * collapseRepeatedChars("jendeeee") // returns "jende"
  * 
  * @param str - The string to process
  * @returns String with consecutive repeated characters collapsed to single
@@ -44,24 +42,24 @@ export function collapseRepeatedChars(str: string): string {
 }
 
 /**
- * Check if a handle contains any banned words/substrings.
- * Checks both the raw normalized handle AND a collapsed version
+ * Check if a username contains any banned words/substrings.
+ * Checks both the raw normalized username AND a collapsed version
  * (for detecting stretched characters like "koooooniii").
  * 
- * @param handle - The normalized handle (lowercase, no @)
- * @returns true if the handle contains banned content
+ * @param username - The normalized username (lowercase, no @)
+ * @returns true if the username contains banned content
  */
-export function isBanned(handle: string): boolean {
-    const lowerHandle = handle.toLowerCase();
-    const collapsedHandle = collapseRepeatedChars(lowerHandle);
+export function containsBannedWord(username: string): boolean {
+    const lowerUsername = username.toLowerCase();
+    const collapsedUsername = collapseRepeatedChars(lowerUsername);
 
     for (const banned of BANNED_SUBSTRINGS) {
-        // Check raw normalized handle
-        if (lowerHandle.includes(banned)) {
+        // Check raw normalized username
+        if (lowerUsername.includes(banned)) {
             return true;
         }
         // Check collapsed version (for stretched characters)
-        if (collapsedHandle.includes(banned)) {
+        if (collapsedUsername.includes(banned)) {
             return true;
         }
     }
@@ -70,16 +68,16 @@ export function isBanned(handle: string): boolean {
 }
 
 /**
- * Validate that a handle only contains valid Instagram characters.
+ * Validate that a username only contains valid Instagram characters.
  * Instagram usernames can only contain: a-z, 0-9, periods, underscores
  * 
- * @param handle - The handle to validate (without @)
- * @returns true if the handle uses only valid ASCII characters
+ * @param username - The username to validate (without @)
+ * @returns true if the username uses only valid ASCII characters
  */
-export function isValidCharacters(handle: string): boolean {
+export function isValidCharacters(username: string): boolean {
     // Only allow lowercase letters, numbers, periods, underscores
     // Length: 1-30 characters
-    return /^[a-z0-9._]{1,30}$/.test(handle);
+    return /^[a-z0-9._]{1,30}$/.test(username);
 }
 
 /**
@@ -121,19 +119,29 @@ export function extractUsernameFromUrl(url: string): string | null {
 }
 
 /**
- * Fully normalize user input to a clean handle.
+ * Generate canonical Instagram profile URL from username.
+ * 
+ * @param username - The normalized username (no @)
+ * @returns Canonical URL: https://www.instagram.com/<username>/
+ */
+export function generateProfileUrl(username: string): string {
+    return `https://www.instagram.com/${username}/`;
+}
+
+/**
+ * Fully normalize user input to a clean username.
  * 
  * Steps:
  * 1. Trim whitespace
  * 2. Convert to lowercase
  * 3. If URL, extract username
  * 4. Remove leading @
- * 5. Remove trailing slashes, query params, fragments (already handled by URL extraction)
+ * 5. Remove trailing slashes
  * 
  * @param input - Raw user input
- * @returns Normalized handle (lowercase, no @, no URL parts)
+ * @returns Normalized username (lowercase, no @, no URL parts)
  */
-export function normalizeInput(input: string): string {
+export function normalizeUsername(input: string): string {
     if (!input) return '';
 
     // Step 1: Trim whitespace
@@ -161,28 +169,41 @@ export function normalizeInput(input: string): string {
     return cleaned;
 }
 
+// Legacy export for backward compatibility
+export const normalizeInput = normalizeUsername;
+
 // ============================================================================
-// MAIN VALIDATION INTERFACE
+// VALIDATION INTERFACES
 // ============================================================================
 
 export interface ValidationResult {
     isValid: boolean;
-    handle: string | null;
+    username: string | null;
     error: string | null;
 }
 
+export interface SuspicionResult {
+    isSuspicious: boolean;
+    reason: string | null;
+}
+
+// ============================================================================
+// MAIN VALIDATION FUNCTIONS
+// ============================================================================
+
 /**
- * Comprehensive validation of user input for Instagram handle submission.
+ * Basic validation of user input for Instagram username submission.
+ * This performs "hard reject" validation - things that should show an error.
  * 
  * @param input - Raw user input
- * @returns Validation result with normalized handle or error message
+ * @returns Validation result with normalized username or error message
  */
 export function validateInput(input: string): ValidationResult {
     // Empty input check
     if (!input || !input.trim()) {
         return {
             isValid: false,
-            handle: null,
+            username: null,
             error: 'Please enter an Instagram username or URL',
         };
     }
@@ -193,18 +214,18 @@ export function validateInput(input: string): ValidationResult {
     if (hasNonAscii(trimmedInput)) {
         return {
             isValid: false,
-            handle: null,
+            username: null,
             error: 'Only English Instagram usernames are allowed (a-z, 0-9, . _).',
         };
     }
 
     // Normalize the input
-    const normalized = normalizeInput(input);
+    const normalized = normalizeUsername(input);
 
     if (!normalized) {
         return {
             isValid: false,
-            handle: null,
+            username: null,
             error: 'Invalid Instagram username or URL',
         };
     }
@@ -213,54 +234,78 @@ export function validateInput(input: string): ValidationResult {
     if (!isValidCharacters(normalized)) {
         return {
             isValid: false,
-            handle: null,
+            username: null,
             error: 'Only English Instagram usernames are allowed (a-z, 0-9, . _).',
-        };
-    }
-
-    // Check for banned words
-    if (isBanned(normalized)) {
-        return {
-            isValid: false,
-            handle: null,
-            error: 'This username is not allowed.',
         };
     }
 
     return {
         isValid: true,
-        handle: normalized,
+        username: normalized,
         error: null,
     };
 }
 
-// ============================================================================
-// TEST CASES (for reference)
-// ============================================================================
 /**
- * Test Cases:
+ * Check if a username should be shadow-banned.
+ * This is called AFTER validateInput passes.
  * 
- * VALID:
- * - "instagram.user_1" → valid, normalized to "instagram.user_1"
- * - "@valid_user" → valid, normalized to "valid_user"
- * - "https://instagram.com/user123" → valid, normalized to "user123"
- * - "USER.Name_123" → valid, normalized to "user.name_123"
+ * Shadow-ban conditions:
+ * - Contains banned substrings (including stretched versions)
  * 
- * INVALID - Non-ASCII (Persian characters):
- * - "کاربر_ایرانی" → error: "Only English Instagram usernames are allowed..."
- * - "user_فارسی" → error: "Only English Instagram usernames are allowed..."
- * 
- * INVALID - Banned words:
- * - "koooooniii" → collapsed to "koni", error: "This username is not allowed."
- * - "rezaPahlavi" → contains "pahlavi", error: "This username is not allowed."
- * - "pahlaviiiijendaaas" → collapsed contains "pahlavi" + "jendas", error: "This username is not allowed."
- * - "rezapahlavijende" → contains both banned substrings, error: "This username is not allowed."
- * - "kooni_user" → contains "kooni", error: "This username is not allowed."
- * - "koskesh123" → contains "koskesh", error: "This username is not allowed."
- * 
- * INVALID - Character rules:
- * - "user name" (space) → error: "Only English Instagram usernames are allowed..."
- * - "user-name" (hyphen) → error: "Only English Instagram usernames are allowed..."
- * - "" (empty) → error: "Please enter an Instagram username or URL"
- * - "a".repeat(31) (too long) → error: "Only English Instagram usernames are allowed..."
+ * @param username - The normalized username (already validated)
+ * @returns Suspicion result with reason if suspicious
  */
+export function isSuspicious(username: string): SuspicionResult {
+    // Check for banned words (including stretched versions)
+    if (containsBannedWord(username)) {
+        return {
+            isSuspicious: true,
+            reason: 'Contains banned substring',
+        };
+    }
+
+    return {
+        isSuspicious: false,
+        reason: null,
+    };
+}
+
+/**
+ * Full validation pipeline for server-side use.
+ * Returns validation status, suspicion status, and all relevant data.
+ * 
+ * @param input - Raw user input
+ */
+export function validateAndCheckSuspicion(input: string): {
+    isValid: boolean;
+    username: string | null;
+    profileUrl: string | null;
+    error: string | null;
+    isSuspicious: boolean;
+    suspicionReason: string | null;
+} {
+    const validation = validateInput(input);
+
+    if (!validation.isValid || !validation.username) {
+        return {
+            isValid: false,
+            username: null,
+            profileUrl: null,
+            error: validation.error,
+            isSuspicious: false,
+            suspicionReason: null,
+        };
+    }
+
+    const suspicion = isSuspicious(validation.username);
+
+    return {
+        isValid: true,
+        username: validation.username,
+        profileUrl: generateProfileUrl(validation.username),
+        error: null,
+        isSuspicious: suspicion.isSuspicious,
+        suspicionReason: suspicion.reason,
+    };
+}

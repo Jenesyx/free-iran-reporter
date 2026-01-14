@@ -1,14 +1,14 @@
 'use client';
 
 import { useState, FormEvent } from 'react';
-import { getValidationError, parseAndValidateHandle } from '@/lib/instagram';
+import { getValidationError, parseAndValidateUsername } from '@/lib/instagram';
 
 interface InputSectionProps {
-    onSubmitMultiple: (handles: string[]) => Promise<{ added: number; skipped: number; errors: string[] }>;
-    existingHandles: string[];
+    onSubmitMultiple: (usernames: string[]) => Promise<{ added: number; skipped: number; errors: string[] }>;
+    existingUsernames: string[];
 }
 
-export default function InputSection({ onSubmitMultiple, existingHandles }: InputSectionProps) {
+export default function InputSection({ onSubmitMultiple, existingUsernames }: InputSectionProps) {
     const [input, setInput] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -30,54 +30,54 @@ export default function InputSection({ onSubmitMultiple, existingHandles }: Inpu
             return;
         }
 
-        // Parse and validate all handles
-        const validHandles: string[] = [];
+        // Parse and validate all usernames
+        const validUsernames: string[] = [];
         const errors: { part: string; error: string }[] = [];
         const duplicates: string[] = [];
 
         for (const part of parts) {
-            // Get validation error (includes banned word checks)
+            // Get validation error (includes character checks)
             const validationError = getValidationError(part);
             if (validationError) {
                 errors.push({ part, error: validationError });
                 continue;
             }
 
-            // Parse and normalize the handle
-            const parsed = parseAndValidateHandle(part);
+            // Parse and normalize the username
+            const parsed = parseAndValidateUsername(part);
             if (!parsed) {
                 errors.push({ part, error: 'Invalid Instagram username' });
                 continue;
             }
 
-            // Check for duplicates in existing handles (client-side)
-            if (existingHandles.includes(parsed)) {
+            // Check for duplicates in existing usernames (client-side)
+            if (existingUsernames.includes(parsed)) {
                 duplicates.push(parsed);
                 continue;
             }
 
             // Check for duplicates within the current input
-            if (!validHandles.includes(parsed)) {
-                validHandles.push(parsed);
+            if (!validUsernames.includes(parsed)) {
+                validUsernames.push(parsed);
             }
         }
 
-        // If no valid handles, show appropriate error
-        if (validHandles.length === 0) {
+        // If no valid usernames, show appropriate error
+        if (validUsernames.length === 0) {
             if (errors.length > 0) {
                 // Show the first validation error (could be "not allowed" or "English only")
                 setError(errors[0].error);
             } else if (duplicates.length > 0) {
                 setError('Already added.');
             } else {
-                setError('No valid handles to submit');
+                setError('No valid usernames to submit');
             }
             return;
         }
 
         setIsSubmitting(true);
         try {
-            const result = await onSubmitMultiple(validHandles);
+            const result = await onSubmitMultiple(validUsernames);
 
             if (result.added > 0) {
                 setInput('');
@@ -103,7 +103,7 @@ export default function InputSection({ onSubmitMultiple, existingHandles }: Inpu
                             setInput(e.target.value);
                             if (error) setError(null);
                         }}
-                        placeholder="@username or URLs (comma-separated for multiple)"
+                        placeholder="username or URLs (comma-separated for multiple)"
                         className="w-full px-4 py-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-white placeholder-gray-500"
                         disabled={isSubmitting}
                     />

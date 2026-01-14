@@ -6,55 +6,74 @@ import InputSection from '@/components/InputSection';
 import HandleList from '@/components/HandleList';
 import LoadingSkeleton from '@/components/LoadingSkeleton';
 import Toast from '@/components/Toast';
-import type { InstagramReport } from '@/lib/types';
+import type { InstagramReport, HandleData, SortOption } from '@/lib/types';
+import { generateProfileUrl } from '@/lib/validation';
 
 export default function Home() {
-  const [handles, setHandles] = useState<string[]>([]);
+  const [handles, setHandles] = useState<HandleData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [sortOption, setSortOption] = useState<SortOption>('newest');
 
-  // Fetch handles on mount
-  useEffect(() => {
-    const fetchHandles = async () => {
-      try {
-        const response = await fetch('/api/handles');
-        const data = await response.json();
+  // Fetch handles on mount and when sort changes
+  const fetchHandles = useCallback(async (sort: SortOption) => {
+    try {
+      const response = await fetch(`/api/handles?sort=${sort}`);
+      const data = await response.json();
 
-        if (data.error) {
-          setError(data.error);
-        } else {
-          setHandles(data.data?.map((r: InstagramReport) => r.handle) || []);
-        }
-      } catch {
-        setError('Failed to load handles. Please refresh the page.');
-      } finally {
-        setIsLoading(false);
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setHandles(
+          data.data?.map((r: InstagramReport) => ({
+            username: r.username,
+            profile_url: r.profile_url,
+          })) || []
+        );
       }
-    };
+    } catch {
+      setError('Failed to load handles. Please refresh the page.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
-    fetchHandles();
+  useEffect(() => {
+    fetchHandles(sortOption);
+  }, [sortOption, fetchHandles]);
+
+  // Handle sort change
+  const handleSortChange = useCallback((newSort: SortOption) => {
+    setSortOption(newSort);
   }, []);
 
   // Handle multiple form submissions
-  const handleSubmitMultiple = useCallback(async (handlesToSubmit: string[]): Promise<{ added: number; skipped: number; errors: string[] }> => {
+  const handleSubmitMultiple = useCallback(async (usernamesToSubmit: string[]): Promise<{ added: number; skipped: number; errors: string[] }> => {
     const results = { added: 0, skipped: 0, errors: [] as string[] };
-    const addedHandles: string[] = [];
+    const addedHandles: HandleData[] = [];
 
-    for (const handle of handlesToSubmit) {
+    for (const username of usernamesToSubmit) {
       try {
         const response = await fetch('/api/handles', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ input: handle }),
+          body: JSON.stringify({ input: username }),
         });
 
         const data = await response.json();
 
-        if (data.success && data.handle) {
+        if (data.success && data.username) {
+          // Active entry - add to list
           results.added++;
-          addedHandles.push(data.handle);
-        } else if (data.error?.includes('already been reported')) {
+          addedHandles.push({
+            username: data.username,
+            profile_url: generateProfileUrl(data.username),
+          });
+        } else if (data.success && data.message) {
+          // Shadow-banned entry - count as added but don't show
+          results.added++;
+        } else if (data.error?.includes('Already added')) {
           results.skipped++;
         } else {
           results.errors.push(data.error || 'Failed to submit');
@@ -64,20 +83,25 @@ export default function Home() {
       }
     }
 
-    // Update state with all added handles
+    // Update state with all added handles (prepend for newest-first)
     if (addedHandles.length > 0) {
-      setHandles(prev => [...addedHandles, ...prev]);
+      if (sortOption === 'newest') {
+        setHandles(prev => [...addedHandles, ...prev]);
+      } else {
+        // Re-fetch to get proper sort order
+        fetchHandles(sortOption);
+      }
 
       // Show appropriate toast message
       if (addedHandles.length === 1) {
         setToast({ message: 'Added!', type: 'success' });
       } else {
-        setToast({ message: `Added ${addedHandles.length} handles!`, type: 'success' });
+        setToast({ message: `Added ${addedHandles.length} usernames!`, type: 'success' });
       }
     }
 
     return results;
-  }, []);
+  }, [sortOption, fetchHandles]);
 
   // Handle copy success
   const handleCopySuccess = useCallback(() => {
@@ -91,7 +115,7 @@ export default function Home() {
 
         <InputSection
           onSubmitMultiple={handleSubmitMultiple}
-          existingHandles={handles}
+          existingUsernames={handles.map(h => h.username)}
         />
 
         {error && (
@@ -106,6 +130,8 @@ export default function Home() {
           <HandleList
             handles={handles}
             onCopySuccess={handleCopySuccess}
+            sortOption={sortOption}
+            onSortChange={handleSortChange}
           />
         )}
       </div>

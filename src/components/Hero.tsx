@@ -10,8 +10,7 @@ export default function Hero() {
                 identify such accounts for transparency and accountability.
             </p>
             <p className="text-gray-500 text-sm mt-3 max-w-xl mx-auto">
-                Submit Instagram handles of accounts spreading misinformation. All submissions
-                are public and for informational purposes only.
+                Submit Instagram handles of accounts spreading misinformation. And please write the Instagram username correctly, otherwise it will be deleted from here.
             </p>
         </section>
     );
