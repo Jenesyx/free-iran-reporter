@@ -4,11 +4,11 @@ import { useState, FormEvent } from 'react';
 import { getValidationError, parseInstagramHandle } from '@/lib/instagram';
 
 interface InputSectionProps {
-    onSubmit: (handle: string) => Promise<{ success: boolean; error?: string }>;
+    onSubmitMultiple: (handles: string[]) => Promise<{ added: number; skipped: number; errors: string[] }>;
     existingHandles: string[];
 }
 
-export default function InputSection({ onSubmit, existingHandles }: InputSectionProps) {
+export default function InputSection({ onSubmitMultiple, existingHandles }: InputSectionProps) {
     const [input, setInput] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -17,27 +17,70 @@ export default function InputSection({ onSubmit, existingHandles }: InputSection
         e.preventDefault();
         setError(null);
 
-        // Client-side validation
-        const validationError = getValidationError(input);
-        if (validationError) {
-            setError(validationError);
+        if (!input.trim()) {
+            setError('Please enter an Instagram username or URL');
             return;
         }
 
-        // Check for duplicates client-side
-        const parsed = parseInstagramHandle(input);
-        if (parsed && existingHandles.includes(parsed)) {
-            setError('This handle has already been reported');
+        // Split by comma and clean up each part
+        const parts = input.split(',').map(p => p.trim()).filter(p => p.length > 0);
+
+        if (parts.length === 0) {
+            setError('Please enter at least one Instagram username');
+            return;
+        }
+
+        // Parse and validate all handles
+        const validHandles: string[] = [];
+        const invalidParts: string[] = [];
+        const duplicates: string[] = [];
+
+        for (const part of parts) {
+            const validationError = getValidationError(part);
+            if (validationError) {
+                invalidParts.push(part);
+                continue;
+            }
+
+            const parsed = parseInstagramHandle(part);
+            if (!parsed) {
+                invalidParts.push(part);
+                continue;
+            }
+
+            // Check for duplicates in existing handles
+            if (existingHandles.includes(parsed)) {
+                duplicates.push(parsed);
+                continue;
+            }
+
+            // Check for duplicates within the current input
+            if (!validHandles.includes(parsed)) {
+                validHandles.push(parsed);
+            }
+        }
+
+        // If no valid handles, show error
+        if (validHandles.length === 0) {
+            if (duplicates.length > 0 && invalidParts.length === 0) {
+                setError(`All handles have already been reported`);
+            } else if (invalidParts.length > 0) {
+                setError(`Invalid username(s): ${invalidParts.join(', ')}`);
+            } else {
+                setError('No valid handles to submit');
+            }
             return;
         }
 
         setIsSubmitting(true);
         try {
-            const result = await onSubmit(input);
-            if (result.success) {
+            const result = await onSubmitMultiple(validHandles);
+
+            if (result.added > 0) {
                 setInput('');
-            } else {
-                setError(result.error || 'Failed to submit');
+                // Errors will be shown via toast in parent
+            } else if (result.errors.length > 0) {
+                setError(result.errors[0]);
             }
         } catch {
             setError('An unexpected error occurred');
@@ -57,7 +100,7 @@ export default function InputSection({ onSubmit, existingHandles }: InputSection
                             setInput(e.target.value);
                             if (error) setError(null);
                         }}
-                        placeholder="Paste Instagram profile link or @username"
+                        placeholder="@username or URLs (comma-separated for multiple)"
                         className="w-full px-4 py-3 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-white placeholder-gray-500"
                         disabled={isSubmitting}
                     />

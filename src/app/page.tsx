@@ -36,28 +36,47 @@ export default function Home() {
     fetchHandles();
   }, []);
 
-  // Handle form submission
-  const handleSubmit = useCallback(async (input: string): Promise<{ success: boolean; error?: string }> => {
-    try {
-      const response = await fetch('/api/handles', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input }),
-      });
+  // Handle multiple form submissions
+  const handleSubmitMultiple = useCallback(async (handlesToSubmit: string[]): Promise<{ added: number; skipped: number; errors: string[] }> => {
+    const results = { added: 0, skipped: 0, errors: [] as string[] };
+    const addedHandles: string[] = [];
 
-      const data = await response.json();
+    for (const handle of handlesToSubmit) {
+      try {
+        const response = await fetch('/api/handles', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ input: handle }),
+        });
 
-      if (data.success && data.handle) {
-        // Optimistic update - add to beginning of list
-        setHandles(prev => [data.handle, ...prev]);
-        setToast({ message: 'Added!', type: 'success' });
-        return { success: true };
+        const data = await response.json();
+
+        if (data.success && data.handle) {
+          results.added++;
+          addedHandles.push(data.handle);
+        } else if (data.error?.includes('already been reported')) {
+          results.skipped++;
+        } else {
+          results.errors.push(data.error || 'Failed to submit');
+        }
+      } catch {
+        results.errors.push('Network error');
       }
-
-      return { success: false, error: data.error };
-    } catch {
-      return { success: false, error: 'Failed to submit. Please try again.' };
     }
+
+    // Update state with all added handles
+    if (addedHandles.length > 0) {
+      setHandles(prev => [...addedHandles, ...prev]);
+
+      // Show appropriate toast message
+      if (addedHandles.length === 1) {
+        setToast({ message: 'Added!', type: 'success' });
+      } else {
+        setToast({ message: `Added ${addedHandles.length} handles!`, type: 'success' });
+      }
+    }
+
+    return results;
   }, []);
 
   // Handle copy success
@@ -71,7 +90,7 @@ export default function Home() {
         <Hero />
 
         <InputSection
-          onSubmit={handleSubmit}
+          onSubmitMultiple={handleSubmitMultiple}
           existingHandles={handles}
         />
 
