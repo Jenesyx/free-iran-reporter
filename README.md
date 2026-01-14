@@ -20,6 +20,10 @@ A production-ready one-page website for documenting Instagram accounts spreading
 - **Database**: Supabase (PostgreSQL)
 - **Deployment**: Vercel
 
+## Follow me on Instagram
+
+[![Instagram](https://img.shields.io/badge/Instagram-1DA1F2?style=for-the-badge&logo=instagram&logoColor=white)](https://www.instagram.com/artabidkhori)
+
 ---
 
 ## Setup Instructions
@@ -130,59 +134,3 @@ src/
     ├── supabase.ts           # Supabase client
     └── types.ts              # TypeScript interfaces
 ```
-
----
-
-## Supported Input Formats
-
-The following Instagram handle formats are accepted:
-
-| Input | Normalized |
-|-------|------------|
-| `@username` | `username` |
-| `username` | `username` |
-| `https://instagram.com/username` | `username` |
-| `https://www.instagram.com/username/` | `username` |
-| `instagram.com/username?igshid=abc` | `username` |
-
----
-
-## API Reference
-
-### GET /api/handles
-
-Fetch the latest 1000 handles.
-
-**Response:**
-```json
-{
-  "data": [
-    { "id": "uuid", "handle": "username", "created_at": "2024-01-01T00:00:00Z" }
-  ]
-}
-```
-
-### POST /api/handles
-
-Submit a new handle.
-
-**Request:**
-```json
-{ "input": "@username" }
-```
-
-**Response (success):**
-```json
-{ "success": true, "handle": "username" }
-```
-
-**Response (duplicate):**
-```json
-{ "success": false, "error": "This handle has already been reported" }
-```
-
----
-
-## License
-
-MIT
