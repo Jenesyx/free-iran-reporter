@@ -1,61 +1,102 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { validateAndCheckSuspicion } from '@/lib/validation';
+import { checkInstagramProfile } from '@/lib/instagramCheck';
 import type { ApiResponse, SubmitResponse, SortOption } from '@/lib/types';
 
-// Type for database row (supports both old and new schema)
+// ============================================================================
+// RATE LIMITING (Best-effort, in-memory per instance)
+// ============================================================================
+
+interface RateLimitEntry {
+    count: number;
+    resetAt: number;
+}
+
+const rateLimitMap = new Map<string, RateLimitEntry>();
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 10; // 10 requests per minute per IP
+
+/**
+ * Simple in-memory rate limiter (resets on cold starts)
+ */
+function checkRateLimit(ip: string): boolean {
+    const now = Date.now();
+    const entry = rateLimitMap.get(ip);
+
+    if (!entry || now > entry.resetAt) {
+        // No entry or expired, create new
+        rateLimitMap.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+        return true; // allowed
+    }
+
+    if (entry.count >= RATE_LIMIT_MAX_REQUESTS) {
+        return false; // rate limited
+    }
+
+    entry.count++;
+    return true; // allowed
+}
+
+/**
+ * Clean up old rate limit entries periodically (every 5 minutes)
+ */
+function cleanupRateLimits(): void {
+    const now = Date.now();
+    for (const [ip, entry] of rateLimitMap.entries()) {
+        if (now > entry.resetAt) {
+            rateLimitMap.delete(ip);
+        }
+    }
+}
+
+// Cleanup every 5 minutes
+setInterval(cleanupRateLimits, 5 * 60 * 1000);
+
+// ============================================================================
+// TYPE DEFINITIONS
+// ============================================================================
+
+// Type for database row
 interface DbRow {
     id: string;
-    handle?: string;        // old schema
-    username?: string;      // new schema
-    profile_url?: string;   // new schema
+    handle?: string;        // old schema (deprecated)
+    username: string;
+    profile_url: string;
     created_at: string;
-    status?: string;        // new schema (defaults to 'active' conceptually for old schema)
-    reason?: string;        // new schema
+    status: string;
+    exists_status?: string;
+    checked_at?: string;
+    reason?: string;
 }
 
-// Check which schema is in use by examining table structure
-async function hasNewSchema(): Promise<boolean> {
-    // Try a simple query that would only work with new schema
-    const { error } = await supabase
-        .from('instagram_reports')
-        .select('username')
-        .limit(1);
+// ============================================================================
+// GET - Fetch all active handles with sorting
+// ============================================================================
 
-    // If no error, new schema exists
-    return !error;
-}
-
-// GET - Fetch all active handles (up to 1000) with sorting
 export async function GET(request: Request): Promise<NextResponse<ApiResponse<DbRow[]>>> {
     try {
         const { searchParams } = new URL(request.url);
         const sort = (searchParams.get('sort') as SortOption) || 'newest';
 
-        const useNewSchema = await hasNewSchema();
-
         let query = supabase
             .from('instagram_reports')
             .select('*');
 
-        // Apply sorting based on sort option
+        // RLS policy already filters to status='active' only
+        // But we add explicit filter for safety
+        query = query.eq('status', 'active');
+
+        // Apply sorting
         switch (sort) {
             case 'oldest':
                 query = query.order('created_at', { ascending: true });
                 break;
             case 'a-z':
-                if (useNewSchema) {
-                    query = query.order('username', { ascending: true });
-                } else {
-                    query = query.order('handle', { ascending: true });
-                }
+                query = query.order('username', { ascending: true });
                 break;
             case 'z-a':
-                if (useNewSchema) {
-                    query = query.order('username', { ascending: false });
-                } else {
-                    query = query.order('handle', { ascending: false });
-                }
+                query = query.order('username', { ascending: false });
                 break;
             case 'newest':
             default:
@@ -76,16 +117,12 @@ export async function GET(request: Request): Promise<NextResponse<ApiResponse<Db
             );
         }
 
-        // Transform data to normalize between old and new schema
-        const normalizedData = (data || []).map((row: DbRow) => {
-            const username = row.username || row.handle?.replace(/^@/, '') || '';
-            return {
-                ...row,
-                username,
-                profile_url: row.profile_url || `https://www.instagram.com/${username}/`,
-                status: row.status || 'active',
-            };
-        }).filter(row => row.status === 'active'); // Only show active entries
+        // Normalize data
+        const normalizedData = (data || []).map((row: DbRow) => ({
+            ...row,
+            username: row.username || row.handle?.replace(/^@/, '') || '',
+            profile_url: row.profile_url || `https://www.instagram.com/${row.username}/`,
+        }));
 
         return NextResponse.json({ data: normalizedData });
     } catch (err) {
@@ -97,16 +134,31 @@ export async function GET(request: Request): Promise<NextResponse<ApiResponse<Db
     }
 }
 
-// POST - Submit a new handle with shadow-ban logic
+// ============================================================================
+// POST - Submit a new handle with validation and existence check
+// ============================================================================
+
 export async function POST(request: Request): Promise<NextResponse<SubmitResponse>> {
     try {
+        // Get client IP for rate limiting
+        const forwarded = request.headers.get('x-forwarded-for');
+        const ip = forwarded?.split(',')[0]?.trim() || 'unknown';
+
+        // Check rate limit
+        if (!checkRateLimit(ip)) {
+            return NextResponse.json(
+                { success: false, error: 'Too many requests. Please wait a minute.' },
+                { status: 429 }
+            );
+        }
+
         const body = await request.json();
         const { input } = body;
 
         // Full validation and suspicion check
         const result = validateAndCheckSuspicion(input);
 
-        // Hard reject for invalid input (non-ASCII, invalid characters, etc.)
+        // Hard reject for invalid input
         if (!result.isValid || !result.username || !result.profileUrl) {
             return NextResponse.json(
                 { success: false, error: result.error || 'Invalid Instagram username' },
@@ -116,37 +168,54 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
 
         const { username, profileUrl, isSuspicious, suspicionReason } = result;
 
-        // Check which schema to use
-        const useNewSchema = await hasNewSchema();
-
-        let error;
-
-        if (useNewSchema) {
-            // New schema: insert with username, profile_url, status, reason
-            const insertResult = await supabase
+        // If already suspicious from validation, shadow-ban without checking Instagram
+        if (isSuspicious) {
+            await supabase
                 .from('instagram_reports')
                 .insert({
                     username,
                     profile_url: profileUrl,
-                    status: isSuspicious ? 'shadow' : 'active',
+                    status: 'shadow',
+                    exists_status: 'unknown',
+                    checked_at: new Date().toISOString(),
                     reason: suspicionReason,
                 });
-            error = insertResult.error;
-        } else {
-            // Old schema: insert with handle column only
-            // For suspicious entries, silently accept but don't insert (pseudo shadow-ban)
-            if (isSuspicious) {
-                return NextResponse.json({
-                    success: true,
-                    message: 'Submitted. Thanks.',
-                });
-            }
 
-            const insertResult = await supabase
-                .from('instagram_reports')
-                .insert({ handle: username });
-            error = insertResult.error;
+            // Generic success (don't reveal shadow-ban)
+            return NextResponse.json({
+                success: true,
+                message: 'Submitted. Thanks.',
+            });
         }
+
+        // Check if Instagram profile exists
+        const existsStatus = await checkInstagramProfile(username);
+        const checkedAt = new Date().toISOString();
+
+        // Handle based on existence status
+        if (existsStatus === 'not_found') {
+            // Profile doesn't exist on Instagram - reject
+            return NextResponse.json(
+                { success: false, error: 'Username not found on Instagram.' },
+                { status: 400 }
+            );
+        }
+
+        // Determine status based on existence check
+        const status = existsStatus === 'exists' ? 'active' : 'shadow';
+        const reason = existsStatus === 'unknown' ? 'Instagram check returned unknown status' : null;
+
+        // Insert the record
+        const { error } = await supabase
+            .from('instagram_reports')
+            .insert({
+                username,
+                profile_url: profileUrl,
+                status,
+                exists_status: existsStatus,
+                checked_at: checkedAt,
+                reason,
+            });
 
         if (error) {
             // Check for unique constraint violation
@@ -163,14 +232,15 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
             );
         }
 
-        // For shadow-banned entries (new schema only), return generic success message
-        if (isSuspicious) {
+        // For shadow-banned entries (unknown status), return generic success
+        if (status === 'shadow') {
             return NextResponse.json({
                 success: true,
                 message: 'Submitted. Thanks.',
             });
         }
 
+        // Success - profile exists and is active
         return NextResponse.json({
             success: true,
             username,

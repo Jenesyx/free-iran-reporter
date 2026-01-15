@@ -75,6 +75,9 @@ export default function Home() {
           results.added++;
         } else if (data.error?.includes('Already added')) {
           results.skipped++;
+        } else if (data.error?.includes('not found on Instagram')) {
+          // Username doesn't exist - add to errors
+          results.errors.push(data.error);
         } else {
           results.errors.push(data.error || 'Failed to submit');
         }
@@ -98,6 +101,9 @@ export default function Home() {
       } else {
         setToast({ message: `Added ${addedHandles.length} usernames!`, type: 'success' });
       }
+    } else if (results.errors.length > 0) {
+      // No handles added but errors occurred - show error toast
+      setToast({ message: results.errors[0], type: 'error' });
     }
 
     return results;
