@@ -1,9 +1,13 @@
+export type ExistsStatus = 'exists' | 'not_found' | 'unknown';
+
 export interface InstagramReport {
   id: string;
   username: string;       // normalized username without @
   profile_url: string;    // canonical IG link
   created_at: string;
   status: 'active' | 'shadow';
+  exists_status: ExistsStatus;
+  checked_at: string | null;
   reason: string | null;
 }
 
