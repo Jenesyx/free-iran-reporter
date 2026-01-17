@@ -86,7 +86,7 @@ export default function HandleList({ handles, onCopySuccess, sortOption, onSortC
                 </div>
             </div>
 
-            {/* Header with counter, sort dropdown, and copy button */}
+            {/* Header with counter, sort dropdown, and action buttons */}
             <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
                 <div className="flex items-center gap-3">
                     <span className="text-sm text-gray-400 font-medium">
@@ -98,13 +98,29 @@ export default function HandleList({ handles, onCopySuccess, sortOption, onSortC
                     </span>
                     <SortDropdown value={sortOption} onChange={onSortChange} />
                 </div>
-                <button
-                    onClick={handleCopyAll}
-                    disabled={isCopying || filteredHandles.length === 0}
-                    className="px-4 py-2 text-sm font-medium text-purple-300 bg-purple-900/50 rounded-lg hover:bg-purple-800/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-[#0f0f0f] disabled:opacity-50 transition-colors"
-                >
-                    {isCopying ? 'Copied!' : searchQuery ? 'Copy filtered' : 'Copy all'}
-                </button>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => {
+                            const feedbackSection = document.getElementById('feedback-section');
+                            if (feedbackSection) {
+                                feedbackSection.scrollIntoView({ behavior: 'smooth' });
+                            }
+                        }}
+                        className="px-4 py-2 text-sm font-medium text-amber-300 bg-amber-900/50 rounded-lg hover:bg-amber-800/50 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-[#0f0f0f] transition-colors flex items-center gap-1.5"
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                        </svg>
+                        Report
+                    </button>
+                    <button
+                        onClick={handleCopyAll}
+                        disabled={isCopying || filteredHandles.length === 0}
+                        className="px-4 py-2 text-sm font-medium text-purple-300 bg-purple-900/50 rounded-lg hover:bg-purple-800/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-[#0f0f0f] disabled:opacity-50 transition-colors"
+                    >
+                        {isCopying ? 'Copied!' : searchQuery ? 'Copy filtered' : 'Copy all'}
+                    </button>
+                </div>
             </div>
 
             {/* Pills container */}

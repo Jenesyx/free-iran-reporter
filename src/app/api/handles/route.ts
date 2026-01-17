@@ -83,9 +83,11 @@ export async function GET(request: Request): Promise<NextResponse<ApiResponse<Db
             .from('instagram_reports')
             .select('*');
 
-        // RLS policy already filters to status='active' only
-        // But we add explicit filter for safety
-        query = query.eq('status', 'active');
+        // Show entries that are:
+        // 1. status='active' (normal entries)
+        // 2. status='shadow' AND exists_status='exists' (shadow-banned but confirmed to exist)
+        // Don't show: status='shadow' AND exists_status='unknown' (unverified shadow entries)
+        query = query.or('status.eq.active,and(status.eq.shadow,exists_status.eq.exists)');
 
         // Apply sorting
         switch (sort) {

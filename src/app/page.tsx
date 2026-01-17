@@ -6,6 +6,7 @@ import InputSection from '@/components/InputSection';
 import HandleList from '@/components/HandleList';
 import LoadingSkeleton from '@/components/LoadingSkeleton';
 import Toast from '@/components/Toast';
+import FeedbackSection from '@/components/FeedbackSection';
 import type { InstagramReport, HandleData, SortOption } from '@/lib/types';
 import { generateProfileUrl } from '@/lib/validation';
 
@@ -133,12 +134,19 @@ export default function Home() {
         {isLoading ? (
           <LoadingSkeleton />
         ) : (
-          <HandleList
-            handles={handles}
-            onCopySuccess={handleCopySuccess}
-            sortOption={sortOption}
-            onSortChange={handleSortChange}
-          />
+          <>
+            <HandleList
+              handles={handles}
+              onCopySuccess={handleCopySuccess}
+              sortOption={sortOption}
+              onSortChange={handleSortChange}
+            />
+
+            {/* Community Feedback Section */}
+            <FeedbackSection
+              existingUsernames={handles.map(h => h.username)}
+            />
+          </>
         )}
       </div>
 
