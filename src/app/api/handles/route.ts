@@ -231,9 +231,11 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
             );
         }
 
-        // Determine status based on existence check
-        const status = existsStatus === 'exists' ? 'active' : 'shadow';
-        const reason = existsStatus === 'unknown' ? 'Instagram check returned unknown status' : null;
+        // IMPORTANT: When Instagram check is 'unknown' (e.g., blocked by Instagram on cloud IPs),
+        // we still add the user as 'active' to avoid false shadow-bans on production.
+        // Only 'not_found' should reject. This is safer for user experience.
+        const status = 'active';  // Always add as active if not explicitly not_found
+        const reason = existsStatus === 'unknown' ? 'Instagram check was inconclusive (cloud IP blocked)' : null;
 
         if (existingEntry) {
             // Update existing entry (was shadow-banned, now potentially active)
@@ -284,15 +286,7 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
             }
         }
 
-        // For shadow-banned entries (unknown status), return generic success
-        if (status === 'shadow') {
-            return NextResponse.json({
-                success: true,
-                message: 'Submitted. Thanks.',
-            });
-        }
-
-        // Success - profile exists and is active
+        // Success - entry added as active
         return NextResponse.json({
             success: true,
             username,
