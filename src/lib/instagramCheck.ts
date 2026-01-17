@@ -72,65 +72,89 @@ export async function checkInstagramProfile(username: string): Promise<ExistsSta
 
         // Read the response body
         const html = await response.text();
+        const htmlLower = html.toLowerCase();
 
-        // Check for "page not available" indicators - this means user doesn't exist
+        // Check for "page not available" indicators FIRST - this means user doesn't exist
         const notFoundPatterns = [
-            "Sorry, this page isn't available",
-            "Sorry, this page isn\\'t available",
-            "The link you followed may be broken",
-            '"HttpErrorPage"',  // Instagram's error page component
-            'PAGE_NOT_FOUND',   // Error type in data
+            "sorry, this page isn't available",
+            "sorry, this page isn\\'t available",
+            "the link you followed may be broken",
+            '"httperrorpage"',  // Instagram's error page component
+            'page_not_found',   // Error type in data
+            '"error":404',      // JSON error response
+            '"statuscode":404', // JSON status code
         ];
 
         for (const pattern of notFoundPatterns) {
-            if (html.includes(pattern)) {
+            if (htmlLower.includes(pattern.toLowerCase())) {
                 console.log(`[Instagram Check] ${username}: Page not available pattern found (not_found)`);
                 return 'not_found';
             }
         }
 
-        // Check for profile existence indicators
-        const existsPatterns = [
-            `"username":"${username}"`,           // JSON data with exact username
-            `"username":"${username.toLowerCase()}"`, // lowercase version
-            `@${username}`,                        // @ mention in page
-            `instagram.com/${username}`,          // canonical URL reference
-            `<meta property="og:title"`,          // Profile has OpenGraph tags
-            `"ProfilePage"`,                       // Profile page type indicator
-        ];
-
-        for (const pattern of existsPatterns) {
-            if (html.toLowerCase().includes(pattern.toLowerCase())) {
-                console.log(`[Instagram Check] ${username}: Profile indicator found (exists)`);
-                return 'exists';
-            }
-        }
-
-        // Check for login wall - if we see login indicators but no "not found",
-        // the profile likely exists but Instagram wants us to log in
+        // Check for login wall BEFORE checking for existence
+        // If we're redirected to login, we can't verify the user
         const loginPatterns = [
-            'LoginAndSignupPage',
-            '"LoginPage"',
+            'loginandsignuppage',
+            '"loginpage"',
             'login/?next=',
             'accounts/login',
+            '/accounts/login/',
         ];
 
         let hasLoginWall = false;
         for (const pattern of loginPatterns) {
-            if (html.includes(pattern)) {
+            if (htmlLower.includes(pattern.toLowerCase())) {
                 hasLoginWall = true;
                 break;
             }
         }
 
-        // If there's a login wall without "not found" message, the user probably exists
-        // but Instagram is blocking. Treat as unknown to be safe.
+        // If there's a login wall, we cannot verify - treat as unknown
         if (hasLoginWall) {
             console.log(`[Instagram Check] ${username}: Login wall detected, unable to verify (unknown)`);
             return 'unknown';
         }
 
+        // Check for STRICT profile existence indicators (only match if we're SURE)
+        // These patterns indicate we're actually on a real profile page
+        const usernameLC = username.toLowerCase();
+        const strictExistsPatterns = [
+            `"username":"${usernameLC}"`,           // JSON data with exact username
+            `"username": "${usernameLC}"`,          // JSON data with space
+            `@${usernameLC} •`,                     // Profile header pattern
+            `"profilepage"`,                        // Profile page type indicator in JSON
+            `"user":{"id"`,                         // User data present  
+        ];
+
+        for (const pattern of strictExistsPatterns) {
+            if (htmlLower.includes(pattern.toLowerCase())) {
+                console.log(`[Instagram Check] ${username}: Strict profile indicator found (exists)`);
+                return 'exists';
+            }
+        }
+
+        // Check for og:title that contains the actual username
+        // This is more reliable than just checking for og:title existence
+        const ogTitleMatch = html.match(/<meta[^>]*property="og:title"[^>]*content="([^"]+)"/i);
+        if (ogTitleMatch) {
+            const ogTitle = ogTitleMatch[1].toLowerCase();
+            // The og:title should contain the username or their display name
+            // For non-existent users, it usually says "Instagram" or has error text
+            if (ogTitle.includes(usernameLC) ||
+                (ogTitle.includes('@') && !ogTitle.includes('instagram') && ogTitle !== 'instagram')) {
+                console.log(`[Instagram Check] ${username}: og:title contains username (exists)`);
+                return 'exists';
+            }
+            // If og:title just says "Instagram" or similar generic text, profile likely doesn't exist
+            if (ogTitle === 'instagram' || ogTitle.includes('page not found')) {
+                console.log(`[Instagram Check] ${username}: og:title is generic/error (not_found)`);
+                return 'not_found';
+            }
+        }
+
         // If we got a 200 response with no clear indicators, treat as unknown
+        // This is safer than assuming the profile exists
         console.log(`[Instagram Check] ${username}: No clear indicators found (unknown)`);
         return 'unknown';
 
