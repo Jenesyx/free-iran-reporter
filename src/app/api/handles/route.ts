@@ -168,18 +168,48 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
 
         const { username, profileUrl, isSuspicious, suspicionReason } = result;
 
+        // Check if the username already exists in the database
+        const { data: existingEntry } = await supabase
+            .from('instagram_reports')
+            .select('id, status')
+            .eq('username', username)
+            .single();
+
+        // If entry exists and is active, return already added
+        if (existingEntry && existingEntry.status === 'active') {
+            return NextResponse.json(
+                { success: false, error: 'Already added.' },
+                { status: 409 }
+            );
+        }
+
         // If already suspicious from validation, shadow-ban without checking Instagram
         if (isSuspicious) {
-            await supabase
-                .from('instagram_reports')
-                .insert({
-                    username,
-                    profile_url: profileUrl,
-                    status: 'shadow',
-                    exists_status: 'unknown',
-                    checked_at: new Date().toISOString(),
-                    reason: suspicionReason,
-                });
+            if (existingEntry) {
+                // Update existing entry to shadow
+                await supabase
+                    .from('instagram_reports')
+                    .update({
+                        profile_url: profileUrl,
+                        status: 'shadow',
+                        exists_status: 'unknown',
+                        checked_at: new Date().toISOString(),
+                        reason: suspicionReason,
+                    })
+                    .eq('id', existingEntry.id);
+            } else {
+                // Insert new shadow entry
+                await supabase
+                    .from('instagram_reports')
+                    .insert({
+                        username,
+                        profile_url: profileUrl,
+                        status: 'shadow',
+                        exists_status: 'unknown',
+                        checked_at: new Date().toISOString(),
+                        reason: suspicionReason,
+                    });
+            }
 
             // Generic success (don't reveal shadow-ban)
             return NextResponse.json({
@@ -205,31 +235,53 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
         const status = existsStatus === 'exists' ? 'active' : 'shadow';
         const reason = existsStatus === 'unknown' ? 'Instagram check returned unknown status' : null;
 
-        // Insert the record
-        const { error } = await supabase
-            .from('instagram_reports')
-            .insert({
-                username,
-                profile_url: profileUrl,
-                status,
-                exists_status: existsStatus,
-                checked_at: checkedAt,
-                reason,
-            });
+        if (existingEntry) {
+            // Update existing entry (was shadow-banned, now potentially active)
+            const { error } = await supabase
+                .from('instagram_reports')
+                .update({
+                    profile_url: profileUrl,
+                    status,
+                    exists_status: existsStatus,
+                    checked_at: checkedAt,
+                    reason,
+                })
+                .eq('id', existingEntry.id);
 
-        if (error) {
-            // Check for unique constraint violation
-            if (error.code === '23505') {
+            if (error) {
+                console.error('Supabase update error:', error);
                 return NextResponse.json(
-                    { success: false, error: 'Already added.' },
-                    { status: 409 }
+                    { success: false, error: 'Failed to update handle' },
+                    { status: 500 }
                 );
             }
-            console.error('Supabase insert error:', error);
-            return NextResponse.json(
-                { success: false, error: 'Failed to submit handle' },
-                { status: 500 }
-            );
+        } else {
+            // Insert new record
+            const { error } = await supabase
+                .from('instagram_reports')
+                .insert({
+                    username,
+                    profile_url: profileUrl,
+                    status,
+                    exists_status: existsStatus,
+                    checked_at: checkedAt,
+                    reason,
+                });
+
+            if (error) {
+                // Check for unique constraint violation (race condition)
+                if (error.code === '23505') {
+                    return NextResponse.json(
+                        { success: false, error: 'Already added.' },
+                        { status: 409 }
+                    );
+                }
+                console.error('Supabase insert error:', error);
+                return NextResponse.json(
+                    { success: false, error: 'Failed to submit handle' },
+                    { status: 500 }
+                );
+            }
         }
 
         // For shadow-banned entries (unknown status), return generic success
