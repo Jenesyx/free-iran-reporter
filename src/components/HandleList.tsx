@@ -26,8 +26,8 @@ export default function HandleList({ handles, onCopySuccess, sortOption, onSortC
     const handleCopyAll = async () => {
         if (filteredHandles.length === 0) return;
 
-        // Copy filtered usernames WITHOUT @ prefix, newline-separated
-        const text = filteredHandles.map(h => h.username).join('\n');
+        // Copy filtered usernames WITHOUT @ prefix, separated by space and newline
+        const text = filteredHandles.map(h => h.username).join(' \n');
 
         try {
             await navigator.clipboard.writeText(text);

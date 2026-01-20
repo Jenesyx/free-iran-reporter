@@ -7,6 +7,7 @@ import HandleList from '@/components/HandleList';
 import LoadingSkeleton from '@/components/LoadingSkeleton';
 import Toast from '@/components/Toast';
 import FeedbackSection from '@/components/FeedbackSection';
+import Footer from '@/components/Footer';
 import type { InstagramReport, HandleData, SortOption } from '@/lib/types';
 import { generateProfileUrl } from '@/lib/validation';
 
@@ -158,6 +159,8 @@ export default function Home() {
           onClose={() => setToast(null)}
         />
       )}
+
+      <Footer />
     </main>
   );
 }
