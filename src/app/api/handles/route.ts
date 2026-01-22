@@ -68,6 +68,8 @@ interface DbRow {
     exists_status?: string;
     checked_at?: string;
     reason?: string;
+    likes?: number;
+    dislikes?: number;
 }
 
 // ============================================================================
@@ -119,11 +121,43 @@ export async function GET(request: Request): Promise<NextResponse<ApiResponse<Db
             );
         }
 
-        // Normalize data
+        // Fetch ALL vote counts from handle_votes table
+        // (fetching all is simpler and works better than .in() with large arrays)
+        let voteCounts: Record<string, { likes: number; dislikes: number }> = {};
+
+        try {
+            const { data: votes, error: votesError } = await supabase
+                .from('handle_votes')
+                .select('handle_id, vote_type');
+
+            console.log('[Votes Debug] Vote query error:', votesError?.message || 'none');
+            console.log('[Votes Debug] Votes found:', votes?.length || 0);
+
+            if (!votesError && votes && votes.length > 0) {
+                // Aggregate vote counts
+                for (const vote of votes) {
+                    if (!voteCounts[vote.handle_id]) {
+                        voteCounts[vote.handle_id] = { likes: 0, dislikes: 0 };
+                    }
+                    if (vote.vote_type === 'like') {
+                        voteCounts[vote.handle_id].likes++;
+                    } else if (vote.vote_type === 'dislike') {
+                        voteCounts[vote.handle_id].dislikes++;
+                    }
+                }
+                console.log('[Votes Debug] Aggregated counts for', Object.keys(voteCounts).length, 'handles');
+            }
+        } catch (voteErr) {
+            console.error('[Votes Debug] Exception:', voteErr);
+        }
+
+        // Normalize data with vote counts
         const normalizedData = (data || []).map((row: DbRow) => ({
             ...row,
             username: row.username || row.handle?.replace(/^@/, '') || '',
             profile_url: row.profile_url || `https://www.instagram.com/${row.username}/`,
+            likes: voteCounts[row.id]?.likes || 0,
+            dislikes: voteCounts[row.id]?.dislikes || 0,
         }));
 
         return NextResponse.json({ data: normalizedData });
@@ -233,11 +267,12 @@ export async function POST(request: Request): Promise<NextResponse<SubmitRespons
             );
         }
 
-        // IMPORTANT: When Instagram check is 'unknown' (e.g., blocked by Instagram on cloud IPs),
-        // we still add the user as 'active' to avoid false shadow-bans on production.
-        // Only 'not_found' should reject. This is safer for user experience.
-        const status = 'active';  // Always add as active if not explicitly not_found
-        const reason = existsStatus === 'unknown' ? 'Instagram check was inconclusive (cloud IP blocked)' : null;
+        // NOTE: Since we now have client-side verification (user opens profile in browser),
+        // we trust that 'unknown' results are valid when the user has confirmed the profile exists.
+        // The server-side check serves as a secondary validation.
+        // Only explicit 'not_found' results are rejected.
+        const status = 'active';
+        const reason = existsStatus === 'unknown' ? 'User-verified (server check inconclusive)' : null;
 
         if (existingEntry) {
             // Update existing entry (was shadow-banned, now potentially active)

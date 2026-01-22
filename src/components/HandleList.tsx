@@ -3,16 +3,25 @@
 import { useState, useMemo } from 'react';
 import HandlePill from './HandlePill';
 import SortDropdown from './SortDropdown';
-import type { HandleData, SortOption } from '@/lib/types';
+import type { HandleData, SortOption, VoteType } from '@/lib/types';
 
 interface HandleListProps {
     handles: HandleData[];
     onCopySuccess: () => void;
     sortOption: SortOption;
     onSortChange: (sort: SortOption) => void;
+    userVotes: Record<string, VoteType>;
+    onVote: (handleId: string, voteType: VoteType) => Promise<void>;
 }
 
-export default function HandleList({ handles, onCopySuccess, sortOption, onSortChange }: HandleListProps) {
+export default function HandleList({
+    handles,
+    onCopySuccess,
+    sortOption,
+    onSortChange,
+    userVotes,
+    onVote
+}: HandleListProps) {
     const [isCopying, setIsCopying] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
 
@@ -130,9 +139,14 @@ export default function HandleList({ handles, onCopySuccess, sortOption, onSortC
                 <div className="flex flex-wrap gap-2">
                     {filteredHandles.map((handle) => (
                         <HandlePill
-                            key={handle.username}
+                            key={handle.id}
+                            id={handle.id}
                             username={handle.username}
                             profileUrl={handle.profile_url}
+                            likes={handle.likes}
+                            dislikes={handle.dislikes}
+                            userVote={userVotes[handle.id] || null}
+                            onVote={onVote}
                         />
                     ))}
                 </div>

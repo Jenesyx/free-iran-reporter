@@ -8,8 +8,10 @@ import LoadingSkeleton from '@/components/LoadingSkeleton';
 import Toast from '@/components/Toast';
 import FeedbackSection from '@/components/FeedbackSection';
 import Footer from '@/components/Footer';
-import type { InstagramReport, HandleData, SortOption } from '@/lib/types';
+import type { InstagramReport, HandleData, SortOption, VoteType } from '@/lib/types';
 import { generateProfileUrl } from '@/lib/validation';
+import { getFingerprint } from '@/lib/fingerprint';
+import { saveVote, getAllUserVotes } from '@/lib/voteStorage';
 
 export default function Home() {
   const [handles, setHandles] = useState<HandleData[]>([]);
@@ -17,6 +19,21 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [sortOption, setSortOption] = useState<SortOption>('newest');
+  const [userVotes, setUserVotes] = useState<Record<string, VoteType>>({});
+  const [fingerprint, setFingerprint] = useState<string | null>(null);
+
+  // Initialize fingerprint on mount
+  useEffect(() => {
+    const initFingerprint = async () => {
+      const fp = await getFingerprint();
+      setFingerprint(fp);
+
+      // Load local votes
+      const localVotes = getAllUserVotes();
+      setUserVotes(localVotes);
+    };
+    initFingerprint();
+  }, []);
 
   // Fetch handles on mount and when sort changes
   const fetchHandles = useCallback(async (sort: SortOption) => {
@@ -28,9 +45,12 @@ export default function Home() {
         setError(data.error);
       } else {
         setHandles(
-          data.data?.map((r: InstagramReport) => ({
+          data.data?.map((r: InstagramReport & { likes?: number; dislikes?: number }) => ({
+            id: r.id,
             username: r.username,
             profile_url: r.profile_url,
+            likes: r.likes || 0,
+            dislikes: r.dislikes || 0,
           })) || []
         );
       }
@@ -41,6 +61,33 @@ export default function Home() {
     }
   }, []);
 
+  // Fetch user votes from server after fingerprint is ready
+  useEffect(() => {
+    const fetchUserVotes = async () => {
+      if (!fingerprint || handles.length === 0) return;
+
+      try {
+        // Use POST to avoid URL length issues with many handles
+        const handleIds = handles.map(h => h.id);
+        const response = await fetch('/api/votes/user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fingerprint, handleIds }),
+        });
+        const data = await response.json();
+
+        if (data.votes) {
+          setUserVotes(prev => ({ ...prev, ...data.votes }));
+        }
+      } catch {
+        // Silently fail - local votes will still work
+        console.error('Failed to fetch user votes');
+      }
+    };
+
+    fetchUserVotes();
+  }, [fingerprint, handles.length]); // Only re-fetch when handles change
+
   useEffect(() => {
     fetchHandles(sortOption);
   }, [sortOption, fetchHandles]);
@@ -49,6 +96,45 @@ export default function Home() {
   const handleSortChange = useCallback((newSort: SortOption) => {
     setSortOption(newSort);
   }, []);
+
+
+  // Handle vote
+  const handleVote = useCallback(async (handleId: string, voteType: VoteType) => {
+    if (!fingerprint) {
+      setToast({ message: 'Unable to vote. Please refresh the page.', type: 'error' });
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/votes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ handleId, voteType, fingerprint }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        // Save to local storage
+        saveVote(handleId, voteType);
+
+        // Update local state
+        setUserVotes(prev => ({ ...prev, [handleId]: voteType }));
+
+        // Update handle counts
+        setHandles(prev => prev.map(h =>
+          h.id === handleId
+            ? { ...h, likes: data.likes, dislikes: data.dislikes }
+            : h
+        ));
+      } else {
+        throw new Error(data.error || 'Failed to vote');
+      }
+    } catch (err) {
+      console.error('Vote error:', err);
+      throw err; // Re-throw so HandlePill can revert optimistic update
+    }
+  }, [fingerprint]);
 
   // Handle multiple form submissions
   const handleSubmitMultiple = useCallback(async (usernamesToSubmit: string[]): Promise<{ added: number; skipped: number; errors: string[] }> => {
@@ -69,8 +155,11 @@ export default function Home() {
           // Active entry - add to list
           results.added++;
           addedHandles.push({
+            id: data.id || `temp-${Date.now()}-${Math.random()}`,
             username: data.username,
             profile_url: generateProfileUrl(data.username),
+            likes: 0,
+            dislikes: 0,
           });
         } else if (data.success && data.message) {
           // Shadow-banned entry - count as added but don't show
@@ -141,6 +230,8 @@ export default function Home() {
               onCopySuccess={handleCopySuccess}
               sortOption={sortOption}
               onSortChange={handleSortChange}
+              userVotes={userVotes}
+              onVote={handleVote}
             />
 
             {/* Community Feedback Section */}
