@@ -26,6 +26,11 @@ export interface SubmitResponse {
 export type SortOption = 'newest' | 'oldest' | 'a-z' | 'z-a';
 
 export interface HandleData {
+  id: string;
   username: string;
   profile_url: string;
+  likes: number;
+  dislikes: number;
 }
+
+export type VoteType = 'like' | 'dislike';
